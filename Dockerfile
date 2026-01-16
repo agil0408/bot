@@ -1,14 +1,13 @@
-# Pakai Ubuntu + Python 3.11
-FROM python:3.11-slim
+FROM kalilinux/kali-rolling
 
-# Set working directory
-WORKDIR /app
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get -y install wget
 
-# Copy semua file project
-COPY . .
+RUN wget -qO /bin/ttyd https://github.com/tsl0922/ttyd/releases/download/1.7.3/ttyd.x86_64 && \
+    chmod +x /bin/ttyd
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+EXPOSE $PORT
+RUN echo $CREDENTIAL > /tmp/debug
 
-# Jalankan aplikasi
-CMD ["python", "main.py"]
+CMD ["/bin/bash", "-c", "/bin/ttyd -p $PORT -c $USERNAME:$PASSWORD /bin/bash"]
