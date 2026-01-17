@@ -1,0 +1,165 @@
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+-- ================= CONFIG =================
+local webhookURL = "https://discord.com/api/webhooks/1462050938536857662/p1ZdTyznw0KvStxKnau0A0VocivfEVqsB4eGmjGtChKwY29rYJeO_QOkl_Up5UnCmN7L"
+local interval = 30
+local messageId = nil
+-- =========================================
+
+-- ================= DATA ===================
+local knownUsers = {}        -- semua user yang pernah join server ini
+local previousStatus = {}
+local statusHistory = {}
+local MAX_HISTORY = 5
+-- =========================================
+
+-- ============== HISTORY ===================
+local function addHistory(event, username)
+    local line = string.format(
+        "[%s] %-6s | %s",
+        os.date("%H:%M:%S"),
+        event,
+        username
+    )
+    table.insert(statusHistory, 1, line)
+    if #statusHistory > MAX_HISTORY then
+        table.remove(statusHistory)
+    end
+end
+-- =========================================
+
+local function updateDiscordStatus()
+    local playerMap = {}
+
+    -- semua player ONLINE sekarang
+    for _, p in pairs(Players:GetPlayers()) do
+        playerMap[p.Name] = p.DisplayName
+        knownUsers[p.Name] = p.DisplayName
+    end
+
+    local onlineText, offlineText = "", ""
+    local onlineCount, offlineCount, totalUsers = 0, 0, 0
+
+    -- cek semua user yang pernah join
+    for name, display in pairs(knownUsers) do
+        totalUsers += 1
+
+        local isOnline = playerMap[name] ~= nil
+        local wasOnline = previousStatus[name]
+
+        -- EVENT JOIN / LEAVE
+        if isOnline and not wasOnline then
+            addHistory("JOIN", name)
+        elseif not isOnline and wasOnline then
+            addHistory("LEAVE", name)
+        end
+
+        previousStatus[name] = isOnline
+
+        if isOnline then
+            onlineCount += 1
+            onlineText ..= string.format(
+                "🟢 **%s** (@%s)\n",
+                display,
+                name
+            )
+        else
+            offlineCount += 1
+            offlineText ..= string.format(
+                "🔴 **%s** — OFFLINE\n",
+                name
+            )
+        end
+    end
+
+    local description = ""
+    if onlineText ~= "" then
+        description ..= "**🟢 ONLINE**\n" .. onlineText .. "\n"
+    end
+    if offlineText ~= "" then
+        description ..= "**🔴 OFFLINE**\n" .. offlineText
+    end
+
+    local historyText = (#statusHistory > 0)
+        and ("```text\nTIME     EVENT  | USER\n---------------------------\n"
+            .. table.concat(statusHistory, "\n") .. "\n```")
+        or "No activity yet"
+
+    local color =
+        onlineCount == 0 and 0xE74C3C or
+        offlineCount == 0 and 0x2ECC71 or
+        0x3498DB
+
+    local data = {
+        embeds = {{
+            title = "LIVE Server Monitor",
+            description = description,
+            color = color,
+            fields = {
+    {
+        name = "📊 Server Status",
+        value = string.format(
+            "Online: **%d/%d**\nEmpty Slots: **%d**",
+            onlineCount,
+            Players.MaxPlayers,
+            Players.MaxPlayers - onlineCount
+        ),
+        inline = true
+    },
+    {
+        name = "👥 User History",
+        value = string.format(
+            "Known Users: **%d**\nOffline (History): **%d**",
+            totalUsers,
+            offlineCount
+        ),
+        inline = true
+    },
+    {
+        name = "🧾 Activity Logs",
+        value = historyText,
+        inline = false
+    },
+    {
+        name = "🆔 Server ID",
+        value = "```" .. game.JobId .. "```",
+        inline = false
+    }
+},
+            footer = {
+                text = "LIVE Server Monitor | Last Update"
+            },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }}
+    }
+
+    local request = syn and syn.request or http_request or request
+    if not request then return end
+
+    local url = messageId
+        and (webhookURL .. "/messages/" .. messageId)
+        or (webhookURL .. "?wait=true")
+
+    local method = messageId and "PATCH" or "POST"
+
+    local ok, res = pcall(function()
+        return request({
+            Url = url,
+            Method = method,
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode(data)
+        })
+    end)
+
+    if ok and not messageId then
+        messageId = HttpService:JSONDecode(res.Body).id
+    end
+end
+
+task.spawn(function()
+    while true do
+        updateDiscordStatus()
+        task.wait(interval)
+    end
+end)
